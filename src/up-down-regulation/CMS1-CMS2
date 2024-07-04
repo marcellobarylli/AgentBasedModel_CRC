@@ -1,0 +1,24 @@
+    pathways_to_be_down = {'pos': {'CMS1': ['Apoptosis', 'Epithelial Mesenchymal Transition',  'mTORC1 Signaling',
+                                            'p53 Pathway',
+                                            'UV Response Up', 'Unfolded Protein Response', 'Hypoxia', 'Myogenesis',
+                                            'KRAS Signaling Up'],
+                                   'CMS2': [],
+                                   'CMS3': [],
+                                   'CMS4': []},
+                           'neg': {'CMS1': [],
+                                   'CMS2': ['Apoptosis', 'Epithelial Mesenchymal Transition',  'mTORC1 Signaling',
+                                            'p53 Pathway',
+                                            'UV Response Up', 'Unfolded Protein Response', 'Hypoxia', 'Myogenesis',
+                                            'KRAS Signaling Up'],
+                                   'CMS3': [],
+                                   'CMS4': []}
+                           }  # which pathways we want to downregulation when moving to the right of the graph
+    pathways_to_be_up = {'pos': {'CMS1': [],
+                                 'CMS2': ['Interferon Gamma Response'],
+                                 'CMS3': [],
+                                 'CMS4': []},
+                         'neg': {'CMS1': ['Interferon Gamma Response'],
+                                 'CMS2': [],
+                                 'CMS3': [],
+                                 'CMS4': []}
+                         }

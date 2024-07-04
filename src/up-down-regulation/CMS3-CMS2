@@ -1,0 +1,20 @@
+    pathways_to_be_down = {'pos': {'CMS1': [],
+                                   'CMS2': [],
+                                   'CMS3': ['Allograft Rejection', 'TNF-alpha Signaling via NF-kB',
+                                            'Interferon Gamma Response'],
+                                   'CMS4': []},
+                           'neg': {'CMS1': [],
+                                   'CMS2': ['Allograft Rejection', 'TNF-alpha Signaling via NF-kB',
+                                            'Interferon Gamma Response', 'Apoptosis', 'Hypoxia', 'p53 Pathway'],
+                                   'CMS3': [],
+                                   'CMS4': []}
+                           }  # which pathways we want to downregulation when moving to the right of the graph
+    pathways_to_be_up = {'pos': {'CMS1': [],
+                                 'CMS2': ['Estrogen Response Late', 'Xenobiotic Metabolism'],
+                                 'CMS3': [],
+                                 'CMS4': []},
+                         'neg': {'CMS1': [],
+                                 'CMS2': [],
+                                 'CMS3': ['Estrogen Response Late', 'Xenobiotic Metabolism'],
+                                 'CMS4': []}
+                         }  # which pathways we want to upregulate when moving to the right of the graph
