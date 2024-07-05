@@ -37,42 +37,106 @@ def process_chunk(chunk, indices_to_group, n):
     return averaged_chunk
 
 
-def create_selection_sc_gene_expression_df(indices_to_group, scale='raw', n=100, tissue_class='Tumor', chunksize=1000):
+## HERE THE CHUNKED VERSION FOR MEMORY EFFICIENCY
+# def create_selection_sc_gene_expression_df(indices_to_group, scale='raw', n=100, tissue_class='Tumor', chunksize=1000):
+#     indices_to_group = indices_to_group.apply(lambda x: x if len(x) <= n else random.sample(x, n))
+#     flat_list = [item for sublist in indices_to_group.values for item in sublist]
+    
+#     print('The number of columns to load would be: ', len(flat_list))
+    
+#     start = time.time()
+#     print('Start to load the dataframe')
+    
+#     file_path = '../data/GSE132465_GEO_processed_CRC_10X_raw_UMI_count_matrix.txt' if scale == 'raw' else '../data/GSE132465_GEO_processed_CRC_10X_natural_log_TPM_matrix.txt'
+#     output_file = '../data/selected_sc_gene_express_{}_{}.csv'.format(tissue_class, scale)
+    
+#     estimated_chunks = estimate_chunks(file_path, chunksize)
+    
+#     processed_chunks = 0
+    
+#     with tqdm(total=estimated_chunks, desc="Processing chunks") as pbar:
+#         for chunk in pd.read_csv(file_path, delimiter='\t', usecols=['Index'] + flat_list, index_col=['Index'], chunksize=chunksize):
+#             processed_chunk = process_chunk(chunk, indices_to_group, n)
+            
+#             # Write processed chunk directly to file
+#             if processed_chunks == 0:
+#                 processed_chunk.to_csv(output_file, mode='w')
+#             else:
+#                 processed_chunk.to_csv(output_file, mode='a', header=False)
+            
+#             processed_chunks += 1
+            
+#             pbar.update(1)
+#             pbar.set_postfix({'Memory (MB)': f'{processed_chunk.memory_usage().sum() / 1e6:.2f}'})
+            
+#             # Clear memory
+#             del processed_chunk
+            
+#     print('Finished processing. Total time elapsed: ', time.time() - start)
+#     print('Saved to CSV')
+
+# # AND HERE THE NON-CHUNKED VERSION
+# def create_selection_sc_gene_expression_df(indices_to_group, scale='raw', n=100, tissue_class='Tumor'):
+#     indices_to_group = indices_to_group.apply(lambda x: x if len(x) <= n else random.sample(x, n))
+
+#     flat_list = [item for sublist in indices_to_group.values for item in sublist]
+
+#     print('The number of columns to load would be: ', len(flat_list))
+
+#     start = time.time()
+#     print('Start to load the dataframe')
+#     if scale == 'raw':
+#         raw_counts_df = pd.read_csv('../data/GSE132465_GEO_processed_CRC_10X_raw_UMI_count_matrix.txt',
+#                                     delimiter='\t', usecols=['Index'] + flat_list, index_col=['Index'])
+#     elif scale == 'log':
+#         raw_counts_df = pd.read_csv('../data/GSE132465_GEO_processed_CRC_10X_natural_log_TPM_matrix.txt',
+#                                     delimiter='\t', usecols=['Index'] + flat_list, index_col=['Index'])
+#     print('Finished loading the dataframe after: ', time.time() - start)
+
+#     averaged_df = pd.DataFrame(index=raw_counts_df.index)
+#     for patient, new_df in indices_to_group.groupby(level=0):
+#         for subtype, newer_df in new_df.groupby(level=1):
+#             averaged_df[list(zip([str(patient)] * n, [str(subtype)] * n, list(newer_df.values[0])))] = \
+#                 raw_counts_df[list(newer_df.values)[0]]
+#             averaged_df[list(zip([str(patient)] * n, [str(subtype)] * n, list(newer_df.values[0])))] = \
+#                 raw_counts_df[list(newer_df.values)[0]]
+
+#     averaged_df.columns = pd.MultiIndex.from_tuples(list(averaged_df.columns.values),
+#                                                     names=['patient', 'subtype', 'samples'])
+
+#     print('This much time has elapsed: ', time.time() - start)
+
+#     averaged_df.to_csv('../data/selected_sc_gene_express_{}_{}.csv'.format(tissue_class, scale))
+
+# NO MEMORY FRAGMENTATION
+def create_selection_sc_gene_expression_df(indices_to_group, scale='raw', n=100, tissue_class='Tumor'):
     indices_to_group = indices_to_group.apply(lambda x: x if len(x) <= n else random.sample(x, n))
     flat_list = [item for sublist in indices_to_group.values for item in sublist]
-    
     print('The number of columns to load would be: ', len(flat_list))
     
     start = time.time()
     print('Start to load the dataframe')
     
     file_path = '../data/GSE132465_GEO_processed_CRC_10X_raw_UMI_count_matrix.txt' if scale == 'raw' else '../data/GSE132465_GEO_processed_CRC_10X_natural_log_TPM_matrix.txt'
-    output_file = '../data/selected_sc_gene_express_{}_{}.csv'.format(tissue_class, scale)
+    raw_counts_df = pd.read_csv(file_path, delimiter='\t', usecols=['Index'] + flat_list, index_col=['Index'])
     
-    estimated_chunks = estimate_chunks(file_path, chunksize)
+    print('Finished loading the dataframe after: ', time.time() - start)
     
-    processed_chunks = 0
+    # Create a list to store the new column names and data
+    new_columns = []
+    new_data = []
     
-    with tqdm(total=estimated_chunks, desc="Processing chunks") as pbar:
-        for chunk in pd.read_csv(file_path, delimiter='\t', usecols=['Index'] + flat_list, index_col=['Index'], chunksize=chunksize):
-            processed_chunk = process_chunk(chunk, indices_to_group, n)
-            
-            # Write processed chunk directly to file
-            if processed_chunks == 0:
-                processed_chunk.to_csv(output_file, mode='w')
-            else:
-                processed_chunk.to_csv(output_file, mode='a', header=False)
-            
-            processed_chunks += 1
-            
-            pbar.update(1)
-            pbar.set_postfix({'Memory (MB)': f'{processed_chunk.memory_usage().sum() / 1e6:.2f}'})
-            
-            # Clear memory
-            del processed_chunk
-            
-    print('Finished processing. Total time elapsed: ', time.time() - start)
-    print('Saved to CSV')
+    for patient, new_df in indices_to_group.groupby(level=0):
+        for subtype, newer_df in new_df.groupby(level=1):
+            columns = list(newer_df.values[0])
+            new_columns.extend([(str(patient), str(subtype), col) for col in columns])
+            new_data.append(raw_counts_df[columns].values)
+    
+    # Create the averaged_df with pre-allocated columns
+    averaged_df = pd.DataFrame(np.hstack(new_data), index=raw_counts_df.index, columns=pd.MultiIndex.from_tuples(new_columns, names=['patient', 'subtype', 'samples']))
+    
+    print('This much time has elapsed: ', time.time() - start)
+    averaged_df.to_csv('../data/selected_sc_gene_express_{}_{}2.csv'.format(tissue_class, scale))
 
 BULK_CLASSIFICATION = {'SMC01': 'CMS3', 'SMC02': 'CMS4', 'SMC03': 'CMS1', 'SMC04': 'CMS4', 'SMC05': 'CMS3',
                        'SMC06': 'CMS1', 'SMC07': 'CMS2', 'SMC08': 'CMS1', 'SMC09': 'CMS2', 'SMC10': 'CMS1',
@@ -84,7 +148,12 @@ BULK_CLASSIFICATION = {'SMC01': 'CMS3', 'SMC02': 'CMS4', 'SMC03': 'CMS1', 'SMC04
 tissue_class = 'Tumor'
 scale = 'raw'
 indices_to_group, annotations_df = get_indices_to_group(data_type='GEO', tissue_class=tissue_class)
-create_selection_sc_gene_expression_df(indices_to_group, scale=scale, n=100000, tissue_class=tissue_class, chunksize=1000)
+
+## CHUNKED
+# create_selection_sc_gene_expression_df(indices_to_group, scale=scale, n=100000, tissue_class=tissue_class, chunksize=1000)
+
+## NON-CHUNKED
+create_selection_sc_gene_expression_df(indices_to_group, scale=scale, n=100000, tissue_class=tissue_class)
 
 ########################################### FULL VERSION BELOW ###########################################################
 
@@ -439,104 +508,104 @@ create_selection_sc_gene_expression_df(indices_to_group, scale=scale, n=100000, 
 #     df_subtypes.to_csv('../figures/types_of_cells.csv')
 
 
-# def create_average_sc_gene_expression_df(indices_to_group, scale='raw', n=100):
-#     indices_to_group = indices_to_group.apply(lambda x: x if len(x) <= n else random.sample(x, n))
+def create_average_sc_gene_expression_df(indices_to_group, scale='raw', n=100):
+    indices_to_group = indices_to_group.apply(lambda x: x if len(x) <= n else random.sample(x, n))
 
-#     flat_list = [item for sublist in indices_to_group.values for item in sublist]
+    flat_list = [item for sublist in indices_to_group.values for item in sublist]
 
-#     print(flat_list)
-#     print('The number of columns to load would be: ', len(flat_list))
+    print(flat_list)
+    print('The number of columns to load would be: ', len(flat_list))
 
-#     start = time.time()
-#     print('Start to load the dataframe')
-#     if scale == 'raw':
-#         raw_counts_df = pd.read_csv('../data/GSE132465_GEO_processed_CRC_10X_raw_UMI_count_matrix.txt',
-#                                     delimiter='\t', usecols=['Index'] + flat_list, index_col=['Index'])
-#     elif scale == 'log':
-#         raw_counts_df = pd.read_csv('../data/GSE132465_GEO_processed_CRC_10X_natural_log_TPM_matrix.txt',
-#                                     delimiter='\t', usecols=['Index'] + flat_list, index_col=['Index'])
-#     print('Finished loading the dataframe after: ', time.time() - start)
+    start = time.time()
+    print('Start to load the dataframe')
+    if scale == 'raw':
+        raw_counts_df = pd.read_csv('../data/GSE132465_GEO_processed_CRC_10X_raw_UMI_count_matrix.txt',
+                                    delimiter='\t', usecols=['Index'] + flat_list, index_col=['Index'])
+    elif scale == 'log':
+        raw_counts_df = pd.read_csv('../data/GSE132465_GEO_processed_CRC_10X_natural_log_TPM_matrix.txt',
+                                    delimiter='\t', usecols=['Index'] + flat_list, index_col=['Index'])
+    print('Finished loading the dataframe after: ', time.time() - start)
 
-#     averaged_df = pd.DataFrame(index=raw_counts_df.index)
-#     for patient, new_df in indices_to_group.groupby(level=0):
-#         print(patient, new_df)
-#         for subtype, newer_df in new_df.groupby(level=1):
-#             print(subtype, newer_df)
-#             averaged_df[str(patient) + '-' + str(subtype)] = raw_counts_df[list(newer_df.values)[0]].mean(axis=1)
+    averaged_df = pd.DataFrame(index=raw_counts_df.index)
+    for patient, new_df in indices_to_group.groupby(level=0):
+        print(patient, new_df)
+        for subtype, newer_df in new_df.groupby(level=1):
+            print(subtype, newer_df)
+            averaged_df[str(patient) + '-' + str(subtype)] = raw_counts_df[list(newer_df.values)[0]].mean(axis=1)
 
-#     print('This much time has elapsed: ', time.time() - start)
+    print('This much time has elapsed: ', time.time() - start)
 
-#     averaged_df.to_csv('../data/average_sc_gene_express.csv')
-
-
-# def create_selection_sc_gene_expression_df(indices_to_group, scale='raw', n=100, tissue_class='Tumor'):
-#     indices_to_group = indices_to_group.apply(lambda x: x if len(x) <= n else random.sample(x, n))
-
-#     flat_list = [item for sublist in indices_to_group.values for item in sublist]
-
-#     print('The number of columns to load would be: ', len(flat_list))
-
-#     start = time.time()
-#     print('Start to load the dataframe')
-#     if scale == 'raw':
-#         raw_counts_df = pd.read_csv('../data/GSE132465_GEO_processed_CRC_10X_raw_UMI_count_matrix.txt',
-#                                     delimiter='\t', usecols=['Index'] + flat_list, index_col=['Index'])
-#     elif scale == 'log':
-#         raw_counts_df = pd.read_csv('../data/GSE132465_GEO_processed_CRC_10X_natural_log_TPM_matrix.txt',
-#                                     delimiter='\t', usecols=['Index'] + flat_list, index_col=['Index'])
-#     print('Finished loading the dataframe after: ', time.time() - start)
-
-#     averaged_df = pd.DataFrame(index=raw_counts_df.index)
-#     for patient, new_df in indices_to_group.groupby(level=0):
-#         for subtype, newer_df in new_df.groupby(level=1):
-#             averaged_df[list(zip([str(patient)] * n, [str(subtype)] * n, list(newer_df.values[0])))] = \
-#                 raw_counts_df[list(newer_df.values)[0]]
-#             averaged_df[list(zip([str(patient)] * n, [str(subtype)] * n, list(newer_df.values[0])))] = \
-#                 raw_counts_df[list(newer_df.values)[0]]
-
-#     averaged_df.columns = pd.MultiIndex.from_tuples(list(averaged_df.columns.values),
-#                                                     names=['patient', 'subtype', 'samples'])
-
-#     print('This much time has elapsed: ', time.time() - start)
-
-#     averaged_df.to_csv('../data/selected_sc_gene_express_{}_{}.csv'.format(tissue_class, scale))
+    averaged_df.to_csv('../data/average_sc_gene_express.csv')
 
 
-# def save_expression_data_as_format_for_scanpy(cell_type_to_look_at, select_object, tissue_class, scale):
-#     print('doing calculations for {}'.format(cell_type_to_look_at))
-#     averaged_expression_df = pd.read_csv('../data/selected_sc_gene_express_{}_{}.csv'.format(tissue_class, scale),
-#                                          index_col=[0],
-#                                          header=[0, 1, 2])
+def create_selection_sc_gene_expression_df(indices_to_group, scale='raw', n=100, tissue_class='Tumor'):
+    indices_to_group = indices_to_group.apply(lambda x: x if len(x) <= n else random.sample(x, n))
 
-#     # get the dataframe correctly orientated
-#     averaged_expression_df = averaged_expression_df.transpose()
+    flat_list = [item for sublist in indices_to_group.values for item in sublist]
 
-#     # create columns with the cell type and cms subtype separated
-#     obs_df = pd.DataFrame(list(averaged_expression_df.index.values), columns=['patient', 'subtype', 'sample'])
-#     obs_df['CMS_subtype'] = 0
-#     obs_df['CMS_subtype'] = obs_df['patient'].map(BULK_CLASSIFICATION)
+    print('The number of columns to load would be: ', len(flat_list))
 
-#     obs_df = pd.merge(obs_df, annotations_df[['sample', 'Cell_type']], on='sample')
+    start = time.time()
+    print('Start to load the dataframe')
+    if scale == 'raw':
+        raw_counts_df = pd.read_csv('../data/GSE132465_GEO_processed_CRC_10X_raw_UMI_count_matrix.txt',
+                                    delimiter='\t', usecols=['Index'] + flat_list, index_col=['Index'])
+    elif scale == 'log':
+        raw_counts_df = pd.read_csv('../data/GSE132465_GEO_processed_CRC_10X_natural_log_TPM_matrix.txt',
+                                    delimiter='\t', usecols=['Index'] + flat_list, index_col=['Index'])
+    print('Finished loading the dataframe after: ', time.time() - start)
 
-#     # put the different genes in a dataframe
-#     var_df = pd.DataFrame(list(averaged_expression_df.columns.values), columns=['var'])
+    averaged_df = pd.DataFrame(index=raw_counts_df.index)
+    for patient, new_df in indices_to_group.groupby(level=0):
+        for subtype, newer_df in new_df.groupby(level=1):
+            averaged_df[list(zip([str(patient)] * n, [str(subtype)] * n, list(newer_df.values[0])))] = \
+                raw_counts_df[list(newer_df.values)[0]]
+            averaged_df[list(zip([str(patient)] * n, [str(subtype)] * n, list(newer_df.values[0])))] = \
+                raw_counts_df[list(newer_df.values)[0]]
 
-#     # create a dataframe for the selection of certain types
-#     mod_df = averaged_expression_df.copy()
-#     mod_df[list(obs_df.columns)] = obs_df.values
-#     if select_object == 'cell_type':
-#         selection = (mod_df.Cell_type == cell_type_to_look_at)
-#     elif select_object == 'subtype':
-#         selection = (mod_df.subtype == cell_type_to_look_at)
+    averaged_df.columns = pd.MultiIndex.from_tuples(list(averaged_df.columns.values),
+                                                    names=['patient', 'subtype', 'samples'])
 
-#     mod_df = mod_df[selection]
-#     averaged_expression_df = averaged_expression_df[selection]
+    print('This much time has elapsed: ', time.time() - start)
 
-#     # put the data into a compatible data structure
-#     ann_data = anndata.AnnData(X=averaged_expression_df.values, obs=mod_df[obs_df.columns],
-#                                var=var_df)
+    averaged_df.to_csv('../data/selected_sc_gene_express_{}_{}.csv'.format(tissue_class, scale))
 
-#     ann_data.write_h5ad('../data/for_pyscan_{}_{}_{}.h5ad'.format(tissue_class, cell_type_to_look_at, scale))
+
+def save_expression_data_as_format_for_scanpy(cell_type_to_look_at, select_object, tissue_class, scale):
+    print('doing calculations for {}'.format(cell_type_to_look_at))
+    averaged_expression_df = pd.read_csv('../data/selected_sc_gene_express_{}_{}.csv'.format(tissue_class, scale),
+                                         index_col=[0],
+                                         header=[0, 1, 2])
+
+    # get the dataframe correctly orientated
+    averaged_expression_df = averaged_expression_df.transpose()
+
+    # create columns with the cell type and cms subtype separated
+    obs_df = pd.DataFrame(list(averaged_expression_df.index.values), columns=['patient', 'subtype', 'sample'])
+    obs_df['CMS_subtype'] = 0
+    obs_df['CMS_subtype'] = obs_df['patient'].map(BULK_CLASSIFICATION)
+
+    obs_df = pd.merge(obs_df, annotations_df[['sample', 'Cell_type']], on='sample')
+
+    # put the different genes in a dataframe
+    var_df = pd.DataFrame(list(averaged_expression_df.columns.values), columns=['var'])
+
+    # create a dataframe for the selection of certain types
+    mod_df = averaged_expression_df.copy()
+    mod_df[list(obs_df.columns)] = obs_df.values
+    if select_object == 'cell_type':
+        selection = (mod_df.Cell_type == cell_type_to_look_at)
+    elif select_object == 'subtype':
+        selection = (mod_df.subtype == cell_type_to_look_at)
+
+    mod_df = mod_df[selection]
+    averaged_expression_df = averaged_expression_df[selection]
+
+    # put the data into a compatible data structure
+    ann_data = anndata.AnnData(X=averaged_expression_df.values, obs=mod_df[obs_df.columns],
+                               var=var_df)
+
+    ann_data.write_h5ad('../data/for_pyscan_{}_{}_{}.h5ad'.format(tissue_class, cell_type_to_look_at, scale))
 
 
 # def get_regulated_genes(regulated_pathway, pathway_cms, pathway_dir, scale, tissue_class):

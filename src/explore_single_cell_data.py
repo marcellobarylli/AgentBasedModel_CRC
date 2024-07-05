@@ -21,6 +21,7 @@ import scanpy as sc
 import matplotlib.pyplot as plt
 
 from collections import defaultdict, Mapping
+from collections.abc import Mapping
 
 
 # define funcitons
@@ -267,41 +268,130 @@ def create_selection_sc_gene_expression_df(indices_to_group, scale='raw', n=100,
     averaged_df.to_csv('../data/selected_sc_gene_express_{}_{}.csv'.format(tissue_class, scale))
 
 
-def save_expression_data_as_format_for_scanpy(cell_type_to_look_at, select_object, tissue_class, scale):
+
+## NEW 2, works to write file
+def save_expression_data_as_format_for_scanpy(cell_type_to_look_at, select_object, tissue_class, scale, sample_size=1000):
     print('doing calculations for {}'.format(cell_type_to_look_at))
-    averaged_expression_df = pd.read_csv('../data/selected_sc_gene_express_{}_{}.csv'.format(tissue_class, scale),
-                                         index_col=[0],
-                                         header=[0, 1, 2])
-
-    # get the dataframe correctly orientated
-    averaged_expression_df = averaged_expression_df.transpose()
-
-    # create columns with the cell type and cms subtype separated
-    obs_df = pd.DataFrame(list(averaged_expression_df.index.values), columns=['patient', 'subtype', 'sample'])
-    obs_df['CMS_subtype'] = 0
+    
+    # Read the CSV file in chunks
+    chunks = pd.read_csv(
+        '../data/selected_sc_gene_express_{}_{}.csv'.format(tissue_class, scale),
+        index_col=0,
+        header=[0, 1, 2],
+        chunksize=1100  # Adjust this value based on your memory constraints
+    )
+    
+    # Process the first chunk to get the desired columns
+    first_chunk = next(chunks)
+    if sample_size < first_chunk.shape[1]:
+        averaged_expression_df = first_chunk.iloc[:, :sample_size]
+    else:
+        averaged_expression_df = first_chunk
+    
+    print("Initial shape:", averaged_expression_df.shape)
+    
+    # If we need more columns, keep reading chunks
+    while averaged_expression_df.shape[1] < sample_size:
+        chunk = next(chunks)
+        columns_needed = sample_size - averaged_expression_df.shape[1]
+        averaged_expression_df = pd.concat([averaged_expression_df, chunk.iloc[:, :columns_needed]], axis=1)
+    
+    print("After reading chunks:", averaged_expression_df.shape)
+    
+    # Create obs_df
+    obs_df = pd.DataFrame(averaged_expression_df.columns.to_frame().reset_index(drop=True))
+    obs_df.columns = ['patient', 'subtype', 'sample']
     obs_df['CMS_subtype'] = obs_df['patient'].map(BULK_CLASSIFICATION)
-
     obs_df = pd.merge(obs_df, annotations_df[['sample', 'Cell_type']], on='sample')
-
-    # put the different genes in a dataframe
-    var_df = pd.DataFrame(list(averaged_expression_df.columns.values), columns=['var'])
-
-    # create a dataframe for the selection of certain types
-    mod_df = averaged_expression_df.copy()
-    mod_df[list(obs_df.columns)] = obs_df.values
+    
+    print("obs_df shape:", obs_df.shape)
+    
+    # Create var_df
+    var_df = pd.DataFrame(index=averaged_expression_df.index).reset_index()
+    var_df.columns = ['var']
+    
+    # Transpose averaged_expression_df and set index to match obs_df
+    averaged_expression_df = averaged_expression_df.T
+    averaged_expression_df.index = obs_df.index
+    
+    print("Transposed averaged_expression_df shape:", averaged_expression_df.shape)
+    
+    # Select specific cell type or subtype if required
     if select_object == 'cell_type':
-        selection = (mod_df.Cell_type == cell_type_to_look_at)
+        selection = (obs_df.Cell_type == cell_type_to_look_at)
     elif select_object == 'subtype':
-        selection = (mod_df.subtype == cell_type_to_look_at)
-
-    mod_df = mod_df[selection]
-    averaged_expression_df = averaged_expression_df[selection]
-
-    # put the data into a compatible data structure
-    ann_data = anndata.AnnData(X=averaged_expression_df.values, obs=mod_df[obs_df.columns],
+        selection = (obs_df.subtype == cell_type_to_look_at)
+    
+    if select_object in ['cell_type', 'subtype']:
+        averaged_expression_df = averaged_expression_df.loc[selection]
+        obs_df = obs_df.loc[selection]
+    
+    print("After selection - averaged_expression_df shape:", averaged_expression_df.shape)
+    print("After selection - obs_df shape:", obs_df.shape)
+    
+    # Create AnnData object
+    ann_data = anndata.AnnData(X=averaged_expression_df.values, 
+                               obs=obs_df,
                                var=var_df)
-
+    
+    # Write AnnData to file
     ann_data.write_h5ad('../data/for_pyscan_{}_{}_{}.h5ad'.format(tissue_class, cell_type_to_look_at, scale))
+
+    print('wrote the file')
+
+
+# ### NEWEST, FOR HPC ENVIRONMENT
+# def save_expression_data_as_format_for_scanpy(cell_type_to_look_at, select_object, tissue_class, scale):
+#     print('doing calculations for {}'.format(cell_type_to_look_at))
+    
+#     # Read the entire CSV file
+#     averaged_expression_df = pd.read_csv('../data/selected_sc_gene_express_{}_{}.csv'.format(tissue_class, scale),
+#                                          index_col=0,
+#                                          header=[0, 1, 2])
+    
+#     print("Initial shape:", averaged_expression_df.shape)
+    
+#     # Create obs_df
+#     obs_df = pd.DataFrame(averaged_expression_df.columns.to_frame().reset_index(drop=True))
+#     obs_df.columns = ['patient', 'subtype', 'sample']
+#     obs_df['CMS_subtype'] = obs_df['patient'].map(BULK_CLASSIFICATION)
+#     obs_df = pd.merge(obs_df, annotations_df[['sample', 'Cell_type']], on='sample')
+    
+#     print("obs_df shape:", obs_df.shape)
+    
+#     # Create var_df
+#     var_df = pd.DataFrame(index=averaged_expression_df.index).reset_index()
+#     var_df.columns = ['var']
+
+#     # Transpose averaged_expression_df and set index to match obs_df
+#     averaged_expression_df = averaged_expression_df.T
+#     averaged_expression_df.index = obs_df.index
+
+#     print("Transposed averaged_expression_df shape:", averaged_expression_df.shape)
+    
+#     # Select specific cell type or subtype if required
+#     if select_object == 'cell_type':
+#         selection = (obs_df.Cell_type == cell_type_to_look_at)
+#     elif select_object == 'subtype':
+#         selection = (obs_df.subtype == cell_type_to_look_at)
+    
+#     if select_object in ['cell_type', 'subtype']:
+#         averaged_expression_df = averaged_expression_df.loc[selection]
+#         obs_df = obs_df.loc[selection]
+    
+#     print("After selection - averaged_expression_df shape:", averaged_expression_df.shape)
+#     print("After selection - obs_df shape:", obs_df.shape)
+    
+#     # Create AnnData object
+#     ann_data = anndata.AnnData(X=averaged_expression_df.values, 
+#                                obs=obs_df,
+#                                var=var_df)
+    
+#     # Write AnnData to file
+#     ann_data.write_h5ad('../data/for_pyscan_{}_{}_{}.h5ad'.format(tissue_class, cell_type_to_look_at, scale))
+
+#     print('wrote the file')
+
 
 def get_regulated_genes(regulated_pathway, pathway_cms, pathway_dir, scale, tissue_class):
     cms1_ranked_pos, cms2_ranked_pos, cms3_ranked_pos, cms4_ranked_pos = load_pathways_ranked(side='pos',
@@ -468,9 +558,16 @@ tissue_class = 'Tumor'
 scale = 'raw'
 indices_to_group, annotations_df = get_indices_to_group(data_type='GEO', tissue_class=tissue_class)
 
+# ADDITION
+indices_to_group_tumor, annotations_df_tumor = get_indices_to_group(data_type='GEO', tissue_class='Tumor')
+indices_to_group_normal, annotations_df_normal = get_indices_to_group(data_type='GEO', tissue_class='Normal')
 
-plot_sc_type_classification(annotations_df)
-print(annotations_df)
+annotations_df = annotations_df_tumor
+
+
+## UNCOMMENT TO GET THE PLOTS BACK
+# plot_sc_type_classification(annotations_df)
+# print(annotations_df)
 # save_different_subtypes_per_patient(patient_df)
 
 
@@ -480,6 +577,10 @@ print(annotations_df)
 
 ''' ------------------------------------------ expression data selecting ------------------------------------------ '''
 # create_selection_sc_gene_expression_df(indices_to_group, scale=scale, n=100000, tissue_class=tissue_class)
+
+# ADDITION
+create_selection_sc_gene_expression_df(indices_to_group_tumor, scale=scale, n=100000, tissue_class='Tumor')
+create_selection_sc_gene_expression_df(indices_to_group_normal, scale=scale, n=100000, tissue_class='Normal')
 
 ''' -------------------------------------------- expression comparisons ------------------------------------------ '''
 p_cutoff = 0.025
@@ -523,7 +624,8 @@ CELL_TYPES = ['T cells', 'B cells', 'Myeloids', 'Stromal cells', 'Epithelial cel
 for cell_type_to_look_at in CELL_TYPES:
     print('Currently looking at ', cell_type_to_look_at)
     select_object = 'cell_type'  # two options: 'cell_type' or 'subtype'
-    save_expression_data_as_format_for_scanpy(cell_type_to_look_at, select_object, tissue_class, scale)
+    save_expression_data_as_format_for_scanpy(cell_type_to_look_at, select_object, 'Tumor', scale)
+    save_expression_data_as_format_for_scanpy(cell_type_to_look_at, select_object, 'Normal', scale)
     #
     # regulated_genes = get_regulated_genes(regulated_pathway=regulated_pathway, pathway_cms=pathway_cms, pathway_dir=pathway_dir,
     #                                       scale=scale, tissue_class=tissue_class)
