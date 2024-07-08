@@ -1,5 +1,5 @@
 # import the libraries
-
+import os
 import math
 import time
 import random
@@ -235,68 +235,113 @@ def create_average_sc_gene_expression_df(indices_to_group, scale='raw', n=100):
     averaged_df.to_csv('../data/average_sc_gene_express.csv')
 
 
+## ORIGINAL 
+# def create_selection_sc_gene_expression_df(indices_to_group, scale='raw', n=100, tissue_class='Tumor'):
+#     indices_to_group = indices_to_group.apply(lambda x: x if len(x) <= n else random.sample(x, n))
+
+#     flat_list = [item for sublist in indices_to_group.values for item in sublist]
+
+#     print('The number of columns to load would be: ', len(flat_list))
+
+#     start = time.time()
+#     print('Start to load the dataframe')
+#     if scale == 'raw':
+#         # if slurm not in environment, use the following
+#         if 'SLURM_JOB_ID' in os.environ:
+#             raw_counts_df = pd.read_csv('../data/GSE132465_GEO_processed_CRC_10X_raw_UMI_count_matrix.txt',
+#                                         delimiter='\t', usecols=['Index'] + flat_list, index_col=['Index'])
+
+#         else:
+#             pass
+
+#     elif scale == 'log':
+#         raw_counts_df = pd.read_csv('../data/GSE132465_GEO_processed_CRC_10X_natural_log_TPM_matrix.txt',
+#                                     delimiter='\t', usecols=['Index'] + flat_list, index_col=['Index'])
+#     print('Finished loading the dataframe after: ', time.time() - start)
+
+#     averaged_df = pd.DataFrame(index=raw_counts_df.index)
+#     for patient, new_df in indices_to_group.groupby(level=0):
+#         for subtype, newer_df in new_df.groupby(level=1):
+#             averaged_df[list(zip([str(patient)]*n, [str(subtype)]*n, list(newer_df.values[0])))] = \
+#                 raw_counts_df[list(newer_df.values)[0]]
+#             averaged_df[list(zip([str(patient)]*n, [str(subtype)]*n, list(newer_df.values[0])))] = \
+#                 raw_counts_df[list(newer_df.values)[0]]
+
+#     averaged_df.columns = pd.MultiIndex.from_tuples(list(averaged_df.columns.values),
+#                                                     names=['patient', 'subtype', 'samples'])
+
+#     print('This much time has elapsed: ', time.time() - start)
+
+#     averaged_df.to_csv('../data/selected_sc_gene_express_{}_{}.csv'.format(tissue_class, scale))
+
+
+## NEW function for selecting, TO BE TESTED
 def create_selection_sc_gene_expression_df(indices_to_group, scale='raw', n=100, tissue_class='Tumor'):
     indices_to_group = indices_to_group.apply(lambda x: x if len(x) <= n else random.sample(x, n))
-
     flat_list = [item for sublist in indices_to_group.values for item in sublist]
-
     print('The number of columns to load would be: ', len(flat_list))
-
+    
     start = time.time()
     print('Start to load the dataframe')
-    if scale == 'raw':
-        raw_counts_df = pd.read_csv('../data/GSE132465_GEO_processed_CRC_10X_raw_UMI_count_matrix.txt',
-                                    delimiter='\t', usecols=['Index'] + flat_list, index_col=['Index'])
-    elif scale == 'log':
-        raw_counts_df = pd.read_csv('../data/GSE132465_GEO_processed_CRC_10X_natural_log_TPM_matrix.txt',
-                                    delimiter='\t', usecols=['Index'] + flat_list, index_col=['Index'])
+    
+    file_path = '../data/GSE132465_GEO_processed_CRC_10X_raw_UMI_count_matrix.txt' if scale == 'raw' else '../data/GSE132465_GEO_processed_CRC_10X_natural_log_TPM_matrix.txt'
+    raw_counts_df = pd.read_csv(file_path, delimiter='\t', usecols=['Index'] + flat_list, index_col=['Index'])
+    
     print('Finished loading the dataframe after: ', time.time() - start)
-
-    averaged_df = pd.DataFrame(index=raw_counts_df.index)
+    
+    # Create a list to store the new column names and data
+    new_columns = []
+    new_data = []
+    
     for patient, new_df in indices_to_group.groupby(level=0):
         for subtype, newer_df in new_df.groupby(level=1):
-            averaged_df[list(zip([str(patient)]*n, [str(subtype)]*n, list(newer_df.values[0])))] = \
-                raw_counts_df[list(newer_df.values)[0]]
-            averaged_df[list(zip([str(patient)]*n, [str(subtype)]*n, list(newer_df.values[0])))] = \
-                raw_counts_df[list(newer_df.values)[0]]
-
-    averaged_df.columns = pd.MultiIndex.from_tuples(list(averaged_df.columns.values),
-                                                    names=['patient', 'subtype', 'samples'])
-
+            columns = list(newer_df.values[0])
+            new_columns.extend([(str(patient), str(subtype), col) for col in columns])
+            new_data.append(raw_counts_df[columns].values)
+    
+    # Create the averaged_df with pre-allocated columns
+    averaged_df = pd.DataFrame(np.hstack(new_data), index=raw_counts_df.index, columns=pd.MultiIndex.from_tuples(new_columns, names=['patient', 'subtype', 'samples']))
+    
     print('This much time has elapsed: ', time.time() - start)
-
     averaged_df.to_csv('../data/selected_sc_gene_express_{}_{}.csv'.format(tissue_class, scale))
 
 
 
-## NEW 2, works to write file
-def save_expression_data_as_format_for_scanpy(cell_type_to_look_at, select_object, tissue_class, scale, sample_size=1000):
+### NEW function for saving, FOR HPC ENVIRONMENT
+def save_expression_data_as_format_for_scanpy(cell_type_to_look_at, select_object, tissue_class, scale):
     print('doing calculations for {}'.format(cell_type_to_look_at))
     
-    # Read the CSV file in chunks
-    chunks = pd.read_csv(
-        '../data/selected_sc_gene_express_{}_{}.csv'.format(tissue_class, scale),
-        index_col=0,
-        header=[0, 1, 2],
-        chunksize=1100  # Adjust this value based on your memory constraints
-    )
-    
-    # Process the first chunk to get the desired columns
-    first_chunk = next(chunks)
-    if sample_size < first_chunk.shape[1]:
-        averaged_expression_df = first_chunk.iloc[:, :sample_size]
+    if "SLURM_JOB_ID" in os.environ:
+    # Read the entire CSV file
+        averaged_expression_df = pd.read_csv('../data/selected_sc_gene_express_{}_{}.csv'.format(tissue_class, scale),
+                                            index_col=0,
+                                            header=[0, 1, 2])
     else:
-        averaged_expression_df = first_chunk
+        # Read the CSV file in chunks
+        chunks = pd.read_csv(
+            '../data/selected_sc_gene_express_{}_{}.csv'.format(tissue_class, scale),
+            index_col=0,
+            header=[0, 1, 2],
+            chunksize=1100  # Adjust this value based on your memory constraints
+        )
+        
+        # Process the first chunk to get the desired columns
+        first_chunk = next(chunks)
+        if sample_size < first_chunk.shape[1]:
+            averaged_expression_df = first_chunk.iloc[:, :sample_size]
+        else:
+            averaged_expression_df = first_chunk
+        
+        print("Initial shape:", averaged_expression_df.shape)
+        
+        # If we need more columns, keep reading chunks
+        while averaged_expression_df.shape[1] < sample_size:
+            chunk = next(chunks)
+            columns_needed = sample_size - averaged_expression_df.shape[1]
+            averaged_expression_df = pd.concat([averaged_expression_df, chunk.iloc[:, :columns_needed]], axis=1)
+        
     
     print("Initial shape:", averaged_expression_df.shape)
-    
-    # If we need more columns, keep reading chunks
-    while averaged_expression_df.shape[1] < sample_size:
-        chunk = next(chunks)
-        columns_needed = sample_size - averaged_expression_df.shape[1]
-        averaged_expression_df = pd.concat([averaged_expression_df, chunk.iloc[:, :columns_needed]], axis=1)
-    
-    print("After reading chunks:", averaged_expression_df.shape)
     
     # Create obs_df
     obs_df = pd.DataFrame(averaged_expression_df.columns.to_frame().reset_index(drop=True))
@@ -309,11 +354,11 @@ def save_expression_data_as_format_for_scanpy(cell_type_to_look_at, select_objec
     # Create var_df
     var_df = pd.DataFrame(index=averaged_expression_df.index).reset_index()
     var_df.columns = ['var']
-    
+
     # Transpose averaged_expression_df and set index to match obs_df
     averaged_expression_df = averaged_expression_df.T
     averaged_expression_df.index = obs_df.index
-    
+
     print("Transposed averaged_expression_df shape:", averaged_expression_df.shape)
     
     # Select specific cell type or subtype if required
@@ -338,59 +383,6 @@ def save_expression_data_as_format_for_scanpy(cell_type_to_look_at, select_objec
     ann_data.write_h5ad('../data/for_pyscan_{}_{}_{}.h5ad'.format(tissue_class, cell_type_to_look_at, scale))
 
     print('wrote the file')
-
-
-# ### NEWEST, FOR HPC ENVIRONMENT
-# def save_expression_data_as_format_for_scanpy(cell_type_to_look_at, select_object, tissue_class, scale):
-#     print('doing calculations for {}'.format(cell_type_to_look_at))
-    
-#     # Read the entire CSV file
-#     averaged_expression_df = pd.read_csv('../data/selected_sc_gene_express_{}_{}.csv'.format(tissue_class, scale),
-#                                          index_col=0,
-#                                          header=[0, 1, 2])
-    
-#     print("Initial shape:", averaged_expression_df.shape)
-    
-#     # Create obs_df
-#     obs_df = pd.DataFrame(averaged_expression_df.columns.to_frame().reset_index(drop=True))
-#     obs_df.columns = ['patient', 'subtype', 'sample']
-#     obs_df['CMS_subtype'] = obs_df['patient'].map(BULK_CLASSIFICATION)
-#     obs_df = pd.merge(obs_df, annotations_df[['sample', 'Cell_type']], on='sample')
-    
-#     print("obs_df shape:", obs_df.shape)
-    
-#     # Create var_df
-#     var_df = pd.DataFrame(index=averaged_expression_df.index).reset_index()
-#     var_df.columns = ['var']
-
-#     # Transpose averaged_expression_df and set index to match obs_df
-#     averaged_expression_df = averaged_expression_df.T
-#     averaged_expression_df.index = obs_df.index
-
-#     print("Transposed averaged_expression_df shape:", averaged_expression_df.shape)
-    
-#     # Select specific cell type or subtype if required
-#     if select_object == 'cell_type':
-#         selection = (obs_df.Cell_type == cell_type_to_look_at)
-#     elif select_object == 'subtype':
-#         selection = (obs_df.subtype == cell_type_to_look_at)
-    
-#     if select_object in ['cell_type', 'subtype']:
-#         averaged_expression_df = averaged_expression_df.loc[selection]
-#         obs_df = obs_df.loc[selection]
-    
-#     print("After selection - averaged_expression_df shape:", averaged_expression_df.shape)
-#     print("After selection - obs_df shape:", obs_df.shape)
-    
-#     # Create AnnData object
-#     ann_data = anndata.AnnData(X=averaged_expression_df.values, 
-#                                obs=obs_df,
-#                                var=var_df)
-    
-#     # Write AnnData to file
-#     ann_data.write_h5ad('../data/for_pyscan_{}_{}_{}.h5ad'.format(tissue_class, cell_type_to_look_at, scale))
-
-#     print('wrote the file')
 
 
 def get_regulated_genes(regulated_pathway, pathway_cms, pathway_dir, scale, tissue_class):
@@ -556,13 +548,13 @@ BULK_CLASSIFICATION = {'SMC01': 'CMS3', 'SMC02': 'CMS4', 'SMC03': 'CMS1', 'SMC04
 # ''' ------------------------------------------------ annotation data ----------------------------------------------- '''
 tissue_class = 'Tumor'
 scale = 'raw'
-indices_to_group, annotations_df = get_indices_to_group(data_type='GEO', tissue_class=tissue_class)
+# indices_to_group, annotations_df = get_indices_to_group(data_type='GEO', tissue_class=tissue_class)
 
-# ADDITION
-indices_to_group_tumor, annotations_df_tumor = get_indices_to_group(data_type='GEO', tissue_class='Tumor')
-indices_to_group_normal, annotations_df_normal = get_indices_to_group(data_type='GEO', tissue_class='Normal')
+# # ADDITION
+# indices_to_group_tumor, annotations_df_tumor = get_indices_to_group(data_type='GEO', tissue_class='Tumor')
+# indices_to_group_normal, annotations_df_normal = get_indices_to_group(data_type='GEO', tissue_class='Normal')
 
-annotations_df = annotations_df_tumor
+# annotations_df = annotations_df_tumor
 
 
 ## UNCOMMENT TO GET THE PLOTS BACK
@@ -578,12 +570,13 @@ annotations_df = annotations_df_tumor
 ''' ------------------------------------------ expression data selecting ------------------------------------------ '''
 # create_selection_sc_gene_expression_df(indices_to_group, scale=scale, n=100000, tissue_class=tissue_class)
 
-# ADDITION
-create_selection_sc_gene_expression_df(indices_to_group_tumor, scale=scale, n=100000, tissue_class='Tumor')
-create_selection_sc_gene_expression_df(indices_to_group_normal, scale=scale, n=100000, tissue_class='Normal')
+# # ADDITION
+# create_selection_sc_gene_expression_df(indices_to_group_tumor, scale=scale, n=100000, tissue_class='Tumor')
+# create_selection_sc_gene_expression_df(indices_to_group_normal, scale=scale, n=100000, tissue_class='Normal')
 
 ''' -------------------------------------------- expression comparisons ------------------------------------------ '''
 p_cutoff = 0.025
+
 annotations_df.drop('Sample', inplace=True, axis=1)
 annotations_df.rename({'Index': 'sample'}, inplace=True, axis=1)
 
@@ -631,7 +624,7 @@ for cell_type_to_look_at in CELL_TYPES:
     #                                       scale=scale, tissue_class=tissue_class)
 
     # load the h5ad file
-    adata = load_adata_file(cell_type_to_look_at, tissue_class, scale)
+    adata = load_adata_file(cell_type_to_look_at, tissue_class='Tumor', scale=scale)
     print(adata)
     adata_normal = load_adata_file(cell_type_to_look_at, tissue_class='Normal', scale=scale)
 
